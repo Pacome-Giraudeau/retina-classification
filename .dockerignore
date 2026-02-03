@@ -1,0 +1,56 @@
+# Git
+.git
+.gitignore
+.gitlab-ci.yml
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+README.md
+*.md
+
+# Test files
+tests/
+*.test.py
+
+# Data directories (mount these at runtime)
+src/data/images/
+src/data/*.csv
+src/data/pretrained_backbone/*.pt
+
+# Output directories (mount these at runtime)
+src/models/
+src/results/
+
+# Logs
+*.log
+
+# Docker
+Dockerfile
+.dockerignore

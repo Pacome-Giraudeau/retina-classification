@@ -139,8 +139,8 @@ deploy-model:
     - docker push $CI_REGISTRY_IMAGE:production
     - docker push $CI_REGISTRY_IMAGE:v$CI_PIPELINE_ID
     - echo "=== Production image deployed ==="
-    - echo "Image: $CI_REGISTRY_IMAGE:production"
-    - echo "Version: $CI_REGISTRY_IMAGE:v$CI_PIPELINE_ID"
+    - echo "$CI_REGISTRY_IMAGE:production"
+    - echo "$CI_REGISTRY_IMAGE:v$CI_PIPELINE_ID"
   only:
     - main
   when: manual

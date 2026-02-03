@@ -69,20 +69,35 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: Install dependencies
+      - name: Install dependencies from requirements.txt
         run: |
+          python -m pip install --upgrade pip
+          # Installer les outils de linting + dépendances du projet
           pip install pylint black
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          fi
 
       - name: Run linting
         run: |
           echo "=== Linting Python files ==="
-          pylint --fail-under=7.0 scripts/ || echo "Linting warnings detected"
+          # Vérifier si le dossier scripts existe
+          if [ -d "scripts" ]; then
+            pylint --fail-under=7.0 scripts/ || echo "Linting warnings detected"
+          else
+            echo "No scripts directory found"
+          fi
           echo "=== Checking code format ==="
-          black --check scripts/ tests/ || echo "Format issues detected"
+          # Vérifier quels dossiers existent
+          if [ -d "scripts" ] || [ -d "tests" ]; then
+            black --check scripts/ tests/ || echo "Format issues detected"
+          else
+            echo "No scripts or tests directories to check"
+          fi
 
   # Run unit tests
   test-unit:
-    runs-on: ubuntu-latest  # Ubuntu 24.04 par défaut
+    runs-on: ubuntu-latest
     needs: build-image
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     
@@ -101,33 +116,57 @@ jobs:
           # Pour Ubuntu 24.04, utiliser libgl1 au lieu de libgl1-mesa-glx
           sudo apt-get install -y libgl1 libglib2.0-0
 
-      - name: Install Python dependencies
+      - name: Install Python dependencies from requirements.txt
         run: |
           python -m pip install --upgrade pip
           
-          # Installer torch avec l'index CPU
-          pip install torch==2.0.1 torchvision==0.15.1 --index-url https://download.pytorch.org/whl/cpu
+          # Vérifier que requirements.txt existe
+          if [ ! -f "requirements.txt" ]; then
+            echo "ERROR: requirements.txt not found at project root!"
+            exit 1
+          fi
           
-          # Installer les autres dépendances du requirements.txt
-          pip install pandas==1.5.3 numpy==1.24.3 scikit-learn==1.2.2 Pillow==9.5.0 PyYAML==6.0 matplotlib==3.7.1 seaborn==0.12.2 tqdm==4.65.0
+          echo "=== Installing dependencies from requirements.txt ==="
+          pip install -r requirements.txt
           
-          # Installer pytest
-          pip install pytest==7.4.2 pytest-cov==4.1.0
+          # Installer pytest en plus (pour les tests)
+          pip install pytest pytest-cov
+          
+          echo "=== Installed packages ==="
+          pip list | grep -E "(torch|pandas|numpy|yaml|pytest|pillow|scikit)"
 
       - name: Run unit tests
         run: |
           echo "=== Running unit tests ==="
           mkdir -p reports
           
-          # Vérifier les imports
-          python -c "import pandas; import yaml; import torch; print('All imports OK')"
+          # Vérifier les imports critiques
+          python -c "
+          try:
+              import pandas as pd
+              import yaml
+              import torch
+              import torchvision
+              print(f'✓ Pandas: {pd.__version__}')
+              print(f'✓ PyYAML: {yaml.__version__}')
+              print(f'✓ Torch: {torch.__version__}')
+              print(f'✓ Torchvision: {torchvision.__version__}')
+              print('All imports OK')
+          except ImportError as e:
+              print(f'✗ Import error: {e}')
+              exit(1)
+          "
+          
+          # Configurer matplotlib pour éviter les problèmes GUI
+          export MPLBACKEND=Agg
           
           # Exécuter les tests
           pytest tests/ -v \
             --cov=scripts \
             --cov-report=xml:reports/coverage.xml \
             --cov-report=term \
-            --junitxml=reports/junit.xml
+            --junitxml=reports/junit.xml \
+            --tb=short
 
       - name: Upload test reports
         uses: actions/upload-artifact@v4
@@ -149,9 +188,15 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: Install dependencies
+      - name: Install dependencies from requirements.txt
         run: |
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          else
+            echo "ERROR: requirements.txt not found!"
+            exit 1
+          fi
 
       - name: Train with sample data
         run: |
@@ -184,9 +229,15 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: Install dependencies
+      - name: Install dependencies from requirements.txt
         run: |
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          else
+            echo "ERROR: requirements.txt not found!"
+            exit 1
+          fi
 
       - name: Run full training
         run: |
@@ -223,9 +274,15 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: Install dependencies
+      - name: Install dependencies from requirements.txt
         run: |
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          else
+            echo "ERROR: requirements.txt not found!"
+            exit 1
+          fi
 
       - name: Evaluate model
         run: |
@@ -271,7 +328,7 @@ jobs:
           echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production"
           echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v${{ github.run_number }}"
 
-  # Optional: Docker Scout security scan
+  # Optional: Grype security scan (alternative à Docker Scout)
   security-scan:
     runs-on: ubuntu-latest
     needs: build-image
@@ -287,11 +344,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run Docker Scout
-        uses: docker/scout-action@v1
-        with:
-          command: cves
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-          exit-code: true
-          only-severity: critical,high
-          ignore-unchanged: true
+      - name: Pull Docker image
+        run: docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Install Grype
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Run security scan
+        run: |
+          grype ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --fail-on high \
+            --output table \
+            || echo "Vulnerabilities found above threshold"

@@ -24,7 +24,7 @@ run_mode: "single"  # options: "single", "grid_search"
 
 # Hyperparameters for single run mode
 hyperparameters:
-  epochs: 20
+  epochs: 5
   batch_size: 16
   learning_rate: 0.0002
   img_size: 256

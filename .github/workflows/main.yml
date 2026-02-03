@@ -1,0 +1,278 @@
+name: ML Retinal Disease Classification CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:  # Permet le déclenchement manuel
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_TAG: ${{ github.sha }}
+  IMAGE_LATEST: ${{ github.repository }}:latest
+
+jobs:
+  # Build Docker image
+  build-image:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.event_name == 'pull_request'
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=,format=short
+            type=ref,event=branch
+            type=ref,event=pr
+            latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Run linting tests
+  test-lint:
+    runs-on: ubuntu-latest
+    needs: build-image
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install pylint black
+
+      - name: Run linting
+        run: |
+          echo "=== Linting Python files ==="
+          pylint --fail-under=7.0 scripts/ || echo "Linting warnings detected"
+          echo "=== Checking code format ==="
+          black --check scripts/ tests/ || echo "Format issues detected"
+
+  # Run unit tests
+  test-unit:
+    runs-on: ubuntu-latest
+    needs: build-image
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install pytest pytest-cov
+
+      - name: Run unit tests
+        run: |
+          echo "=== Running unit tests ==="
+          mkdir -p reports
+          pytest tests/ -v --cov=scripts --cov-report=xml:reports/coverage.xml --cov-report=term
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: reports/
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./reports/coverage.xml
+          fail_ci_if_error: false
+
+  # Train model with sample data (CI test)
+  train-test:
+    runs-on: ubuntu-latest
+    needs: [test-lint, test-unit]
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Train with sample data
+        run: |
+          echo "=== Testing training pipeline with sample data ==="
+          python run.py --train
+          echo "=== Checking if model was created ==="
+          ls -lh models/
+          test -f models/best_model_*.pt || (echo "No model found!" && exit 1)
+
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-test
+          path: |
+            models/
+            results/
+          retention-days: 1
+
+  # Full training job (manual trigger)
+  train-full:
+    runs-on: ubuntu-latest
+    needs: build-image
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run full training
+        run: |
+          echo "=== Starting full model training ==="
+          python run.py --train
+          echo "=== Training completed ==="
+          ls -lh src/models/
+
+      - name: Upload full model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-full
+          path: |
+            src/models/
+            src/results/
+          retention-days: 7
+
+  # Evaluate model
+  evaluate:
+    runs-on: ubuntu-latest
+    needs: train-test
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download model artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: model-test
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Evaluate model
+        run: |
+          echo "=== Running model evaluation ==="
+          python run.py --eval
+          echo "=== Evaluation completed ==="
+          ls -lh results/
+
+      - name: Upload evaluation results
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-results
+          path: results/
+          retention-days: 7
+
+  # Deploy: Push final image with model
+  deploy-model:
+    runs-on: ubuntu-latest
+    needs: [train-test, evaluate]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and tag production image
+        run: |
+          echo "=== Tagging production image ==="
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production
+          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v${{ github.run_number }}
+          
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v${{ github.run_number }}
+          
+          echo "=== Production image deployed ==="
+          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production"
+          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v${{ github.run_number }}"
+
+  # Optional: Docker Scout security scan
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: build-image
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Docker Scout
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          exit-code: true
+          only-severity: critical,high
+          ignore-unchanged: true

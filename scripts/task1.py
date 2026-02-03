@@ -116,10 +116,7 @@ def train_one_config(backbone, train_csv, val_csv, test_csv, train_image_dir, va
     config_id = f"{task}_{backbone}_e{epochs}_bs{batch_size}_lr{lr}_im{img_size}_wd{weight_decay}"
     
     
-    print(f"\n{'='*60}")
-    print(f"Training configuration: {config_id}")
-    print(f"Hyperparameters: {config}")
-    print(f"{'='*60}")
+    affiche_infos(config, config_id)
 
     # transforms
     transform = transforms.Compose([
@@ -344,6 +341,12 @@ def train_one_config(backbone, train_csv, val_csv, test_csv, train_image_dir, va
     print(f"{'='*60}\n")
 
     return results
+
+def affiche_infos(config, config_id):
+    print(f"\n{'='*60}")
+    print(f"Training configuration: {config_id}")
+    print(f"Hyperparameters: {config}")
+    print(f"{'='*60}")
 
 
 # ========================

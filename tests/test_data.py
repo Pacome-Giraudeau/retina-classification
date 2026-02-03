@@ -1,12 +1,15 @@
 # tests/test_data.py
 import pytest
 import pandas as pd
+import sys
 import os
-from scripts.train import RetinaMultiLabelDataset, get_class_weights
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../scripts/')))
+
+from train import RetinaMultiLabelDataset, get_class_weights
 
 def test_sample_data_exists():
     """Test que les données d'échantillon existent"""
-    sample_files = ['data/samples/train.csv', 'data/samples/val.csv']
+    sample_files = ['tests/samples/train.csv', 'tests/samples/val.csv']
     
     for file in sample_files:
         if os.path.exists(file):

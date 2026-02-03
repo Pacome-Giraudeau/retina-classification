@@ -1,0 +1,54 @@
+# Multi-Label Retinal Disease Classification Configuration
+
+# config.yaml à la racine du projet
+paths:
+  train_csv: "./src/data/train.csv"
+  val_csv: "./src/data/val.csv"
+  test_csv: "./src/data/offsite_test.csv"
+  train_image_dir: "./src/data/images/train"
+  val_image_dir: "./src/data/images/val"
+  test_image_dir: "./src/data/images/offsite_test"
+  pretrained_backbone_efficient: "./src/data/pretrained_backbone/ckpt_efficientnet_ep50.pt"
+  pretrained_backbone_resnet18: "./src/data/pretrained_backbone/ckpt_resnet18_ep50.pt"
+  output_model_dir: "./src/models"
+  output_dir: "./src/results"
+
+# Model configuration
+model:
+  backbone: "efficientnet"  # options: "efficientnet", "resnet18"
+  task: "t1.3"  # options: "t1.2", "t1.3", "t2_focal", "t2_cb"
+  num_classes: 3
+
+# Run mode
+run_mode: "single"  # options: "single", "grid_search"
+
+# Hyperparameters for single run mode
+hyperparameters:
+  epochs: 20
+  batch_size: 16
+  learning_rate: 0.0002
+  img_size: 256
+  weight_decay: 0.0
+
+# Hyperparameter grid search (used when run_mode: "grid_search")
+grid_search:
+  epochs: [20]
+  batch_size: [32]
+  learning_rate: [0.00001, 0.00002, 0.00003]
+  img_size: [256]
+  weight_decay: [0.0]
+
+# Device configuration
+device:
+  use_cuda: true
+
+# Evaluation configuration
+evaluation:
+  threshold: 0.5
+  save_confusion_matrices: true
+
+# Logging and output
+output:
+  save_checkpoints: true
+  save_probabilities: true
+  save_metrics: true

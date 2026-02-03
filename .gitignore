@@ -1,0 +1,81 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+*.log
+
+# ML Models and data
+*.pt
+*.pth
+*.h5
+*.onnx
+*.pkl
+*.pickle
+
+# Data files
+src/data/images/
+src/data/pretrained_backbone/
+data/images/
+data/*.csv
+*.csv
+!data/samples/*.csv
+
+# Training outputs
+src/models/*.pt
+src/results/
+models/*.pt
+results/
+*.png
+*.jpg
+*.jpeg
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Environment
+.env
+.env.local
+
+# CI/CD artifacts
+reports/
+.cache/
+
+# Keep directory structure
+!.gitkeep
+!*/.gitkeep

@@ -41,6 +41,7 @@ Thumbs.db
 
 # ML Models and data
 *.pt
+*.ckpt
 *.pth
 *.h5
 *.onnx
@@ -52,8 +53,7 @@ src/data/images/
 src/data/pretrained_backbone/
 data/images/
 data/*.csv
-*.csv
-!data/samples/*.csv
+!tests/samples/*.csv
 
 # Training outputs
 src/models/*.pt

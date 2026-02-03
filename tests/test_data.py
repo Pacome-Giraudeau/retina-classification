@@ -20,7 +20,7 @@ def test_sample_data_exists():
             # Vérifier qu'il y a des colonnes de labels
             label_cols = [col for col in df.columns if col != 'id']
             assert len(label_cols) > 0
-
+ 
 def test_dataset_initialization():
     """Test l'initialisation du Dataset"""
     if os.path.exists('data/samples/train.csv'):

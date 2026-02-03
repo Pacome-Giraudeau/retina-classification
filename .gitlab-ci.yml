@@ -1,16 +1,44 @@
-# GitLab CI/CD Pipeline (lightweight version without Docker build)
+# GitLab CI/CD Pipeline for ML Retinal Disease Classification
 
 stages:
+  - build
   - test
   - train
+  - deploy
+
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+  IMAGE_TAG: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+  IMAGE_LATEST: $CI_REGISTRY_IMAGE:latest
+
+# Build Docker image
+build-image:
+  stage: build
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  tags:
+    - docker
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $IMAGE_TAG -t $IMAGE_LATEST .
+    - docker push $IMAGE_TAG
+    - docker push $IMAGE_LATEST
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
 # Run linting tests
 test-lint:
   stage: test
-  image: python:3.9-slim
-  before_script:
-    - pip install --no-cache-dir pylint black
+  image: $IMAGE_LATEST
+  tags:
+    - docker
   script:
+    - pip install pylint black
     - echo "=== Linting Python files ==="
     - pylint --fail-under=7.0 scripts/ || echo "Linting warnings detected"
     - echo "=== Checking code format ==="
@@ -24,11 +52,11 @@ test-lint:
 # Run unit tests
 test-unit:
   stage: test
-  image: python:3.9-slim
-  before_script:
-    - pip install --no-cache-dir -r requirements.txt
-    - pip install --no-cache-dir pytest pytest-cov
+  image: $IMAGE_LATEST
+  tags:
+    - docker
   script:
+    - pip install pytest pytest-cov
     - echo "=== Running unit tests ==="
     - mkdir -p reports
     - pytest tests/ -v --cov=scripts --cov-report=xml:reports/coverage.xml --cov-report=term
@@ -48,12 +76,12 @@ test-unit:
 # Train model with sample data (CI test)
 train-test:
   stage: train
-  image: python:3.9-slim
-  before_script:
-    - pip install --no-cache-dir -r requirements.txt
+  image: $IMAGE_LATEST
+  tags:
+    - docker
   script:
     - echo "=== Testing training pipeline with sample data ==="
-    - python run.py --config config_ci.yaml train
+    - python run.py --train
     - echo "=== Checking if model was created ==="
     - ls -lh models/
     - test -f models/best_model_*.pt || (echo "No model found!" && exit 1)
@@ -66,15 +94,35 @@ train-test:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
 
+# Full training job (manual trigger)
+train-full:
+  stage: train
+  image: $IMAGE_LATEST
+  tags:
+    - docker
+  script:
+    - echo "=== Starting full model training ==="
+    - python run.py --train
+    - echo "=== Training completed ==="
+    - ls -lh src/models/
+  artifacts:
+    paths:
+      - src/models/
+      - src/results/
+    expire_in: 1 week
+  when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
 # Evaluate model
 evaluate:
   stage: train
-  image: python:3.9-slim
-  before_script:
-    - pip install --no-cache-dir -r requirements.txt
+  image: $IMAGE_LATEST
+  tags:
+    - docker
   script:
     - echo "=== Running model evaluation ==="
-    - python run.py --config config_ci.yaml evaluate
+    - python run.py --eval
     - echo "=== Evaluation completed ==="
     - ls -lh results/
   artifacts:
@@ -85,4 +133,47 @@ evaluate:
     - train-test
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# Deploy: Push final image with model
+deploy-model:
+  stage: deploy
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  tags:
+    - docker
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - echo "=== Tagging production image ==="
+    - docker pull $IMAGE_TAG
+    - docker tag $IMAGE_TAG $CI_REGISTRY_IMAGE:production
+    - docker tag $IMAGE_TAG $CI_REGISTRY_IMAGE:v$CI_PIPELINE_ID
+    - docker push $CI_REGISTRY_IMAGE:production
+    - docker push $CI_REGISTRY_IMAGE:v$CI_PIPELINE_ID
+    - echo "=== Production image deployed ==="
+    - echo "$CI_REGISTRY_IMAGE:production"
+    - echo "$CI_REGISTRY_IMAGE:v$CI_PIPELINE_ID"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+
+# Optional: Docker Scout security scan
+.scout-scan:
+  stage: test
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  tags:
+    - docker
+  before_script:
+    - apk add --no-cache curl
+    - curl -sSfL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh -s --
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker pull $IMAGE_TAG
+    - docker scout cves $IMAGE_TAG --exit-code --only-severity critical,high || echo "Vulnerabilities detected"
+  allow_failure: true
+  rules:
     - if: $CI_COMMIT_BRANCH == "main"

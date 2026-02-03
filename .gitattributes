@@ -1,5 +1,0 @@
-# Ne RIEN mettre en LFS - tout doit être ignoré via .gitignore
-# Si vous avez besoin de partager des modèles, utilisez un service externe
-# comme Hugging Face Hub, AWS S3, ou Google Drive
-*.ckpt !text !filter !merge !diff
-*.pt !text !filter !merge !diff

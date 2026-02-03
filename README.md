@@ -1,4 +1,4 @@
-# DL_final_proj
+# retina-classification
 
 
 
@@ -15,14 +15,14 @@ Already a pro? Just edit this README.md and make it your own. Want to make it ea
 
 ```
 cd existing_repo
-git remote add origin https://gitlab.com/p.giraudeau44/dl_final_proj.git
+git remote add origin https://gitlab.com/p.giraudeau44/retina-classification.git
 git branch -M main
 git push -uf origin main
 ```
 
 ## Integrate with your tools
 
-* [Set up project integrations](https://gitlab.com/p.giraudeau44/dl_final_proj/-/settings/integrations)
+* [Set up project integrations](https://gitlab.com/p.giraudeau44/retina-classification/-/settings/integrations)
 
 ## Collaborate with your team
 

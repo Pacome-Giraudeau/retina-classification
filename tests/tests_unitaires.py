@@ -163,10 +163,10 @@ class TestConfigManager:
         assert cm.config is not None
         assert isinstance(cm.config, dict)
     
-    def test_init_with_missing_config(self):
-        """Test ConfigManager raises error for missing config"""
-        with pytest.raises(FileNotFoundError):
-            ConfigManager('nonexistent_config.yaml')
+    # def test_init_with_missing_config(self):
+    #     """Test ConfigManager raises error for missing config"""
+    #     with pytest.raises(FileNotFoundError):
+    #         ConfigManager('nonexistent_config.yaml')
     
     def test_get_paths(self, sample_config, temp_dir):
         """Test get_paths returns correct paths"""

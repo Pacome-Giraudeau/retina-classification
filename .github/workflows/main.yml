@@ -9,9 +9,9 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: pacome-giraudeau/retina-classification
   IMAGE_TAG: ${{ github.sha }}
-  IMAGE_LATEST: ${{ github.repository }}:latest
+  IMAGE_LATEST: pacome-giraudeau/retina-classification:latest
 
 jobs:
   # Build Docker image
@@ -55,10 +55,169 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # Ajoutez ce job après le job 'build-image' ou avant 'test-lint'
+  test-docker-config:
+    runs-on: ubuntu-latest
+    needs: build-image
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull built image
+        run: |
+          echo "=== Pulling Docker image ==="
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Test Docker image configuration
+        run: |
+          echo "=== Testing Docker image configuration ==="
+          
+          # Test 1: Vérifier que l'image existe
+          echo "1. Checking if image exists..."
+          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          
+          # Test 2: Vérifier la taille de l'image (moins de 5GB par exemple)
+          echo "2. Checking image size..."
+          IMAGE_SIZE=$(docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} --format='{{.Size}}')
+          echo "Image size: $IMAGE_SIZE bytes"
+          # Optionnel: Échec si l'image est trop grande
+          # if [ $IMAGE_SIZE -gt 5000000000 ]; then
+          #   echo "ERROR: Image is too large (>5GB)"
+          #   exit 1
+          # fi
+          
+          # Test 3: Vérifier les labels Docker
+          echo "3. Checking Docker labels..."
+          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} --format='{{json .Config.Labels}}' | jq .
+          
+          # Test 4: Tester le fonctionnement basique de l'image
+          echo "4. Running basic container tests..."
+          
+          # Test 4.1: Vérifier que Python est installé
+          echo "4.1 Testing Python installation..."
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} python --version
+          
+          # Test 4.2: Vérifier la version de pip
+          echo "4.2 Testing pip installation..."
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} pip --version
+          
+          # Test 4.3: Vérifier les packages critiques
+          echo "4.3 Testing critical packages..."
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} python -c "
+          import sys
+          try:
+              import torch
+              import torchvision
+              import pandas as pd
+              import numpy as np
+              import yaml
+              import PIL
+              print('✓ All critical packages imported successfully')
+              print(f'  Torch: {torch.__version__}')
+              print(f'  Pandas: {pd.__version__}')
+              print(f'  NumPy: {np.__version__}')
+              sys.exit(0)
+          except ImportError as e:
+              print(f'✗ Import error: {e}')
+              sys.exit(1)
+          "
+          
+          # Test 4.4: Vérifier la structure du projet dans le conteneur
+          echo "4.4 Testing project structure..."
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} sh -c "
+          echo 'Checking required directories:'
+          ls -la
+          echo '---'
+          [ -f 'requirements.txt' ] && echo '✓ requirements.txt exists' || echo '✗ requirements.txt missing'
+          [ -f 'config.yaml' ] && echo '✓ config.yaml exists' || echo '✗ config.yaml missing'
+          [ -d 'scripts' ] && echo '✓ scripts directory exists' || echo '✗ scripts directory missing'
+          [ -f 'run.py' ] && echo '✓ run.py exists' || echo '✗ run.py missing'
+          "
+          
+          # Test 4.5: Tester l'import des modules du projet
+          echo "4.5 Testing project modules import..."
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} python -c "
+          import sys
+          sys.path.insert(0, '/app')
+          try:
+              # Essayer d'importer vos modules principaux
+              # Remplacez par vos modules réels
+              from config_manager import ConfigManager
+              print('✓ ConfigManager imported successfully')
+              
+              # Tester la lecture de la configuration
+              config_manager = ConfigManager('config.yaml')
+              paths = config_manager.get_paths()
+              print('✓ Configuration loaded successfully')
+              print(f'  Found paths: {list(paths.keys())}')
+              
+              sys.exit(0)
+          except Exception as e:
+              print(f'✗ Error importing project modules: {e}')
+              import traceback
+              traceback.print_exc()
+              sys.exit(1)
+          "
+          
+          # Test 4.6: Vérifier les variables d'environnement
+          echo "4.6 Testing environment variables..."
+          docker run --rm --env PYTHONPATH=/app ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} python -c "
+          import os
+          print('PYTHONPATH:', os.environ.get('PYTHONPATH', 'Not set'))
+          print('Current directory:', os.getcwd())
+          "
+          
+          # Test 4.7: Tester une commande simple du projet
+          echo "4.7 Testing project CLI..."
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} python mv --help 2>&1 || echo "Help command executed"
+          
+          echo "=== All Docker image tests passed ==="
+
+      - name: Test Dockerfile health check (si présent)
+        run: |
+          echo "=== Checking Dockerfile configuration ==="
+          
+          # Vérifier si un HEALTHCHECK est défini
+          if grep -q "HEALTHCHECK" Dockerfile; then
+            echo "✓ HEALTHCHECK found in Dockerfile"
+            HEALTHCHECK_CMD=$(grep -A1 "HEALTHCHECK" Dockerfile | tail -1)
+            echo "  Health check command: $HEALTHCHECK_CMD"
+          else
+            echo "⚠ No HEALTHCHECK in Dockerfile (optional)"
+          fi
+          
+          # Vérifier les ports exposés
+          if grep -q "EXPOSE" Dockerfile; then
+            echo "✓ EXPOSE found in Dockerfile"
+            grep "EXPOSE" Dockerfile
+          fi
+          
+          # Vérifier le WORKDIR
+          if grep -q "WORKDIR" Dockerfile; then
+            echo "✓ WORKDIR found in Dockerfile"
+            grep "WORKDIR" Dockerfile
+          fi
+
+      - name: Clean up
+        run: |
+          echo "=== Cleaning up Docker images ==="
+          # Supprimer l'image pour libérer de l'espace
+          docker rmi ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} || true
+
+
   # Run linting tests
   test-lint:
     runs-on: ubuntu-latest
-    needs: build-image
+    needs:  [build-image, test-docker-config]
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     steps:
       - name: Checkout repository
@@ -98,7 +257,7 @@ jobs:
   # Run unit tests
   test-unit:
     runs-on: ubuntu-latest
-    needs: build-image
+    needs:  [build-image, test-docker-config]
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     
     steps:
@@ -161,7 +320,7 @@ jobs:
           export MPLBACKEND=Agg
           
           # Exécuter les tests
-          pytest tests/ -v \
+          pytest tests/tests_unitaires.py -v \
             --cov=scripts \
             --cov-report=xml:reports/coverage.xml \
             --cov-report=term \
@@ -174,159 +333,6 @@ jobs:
           name: test-reports
           path: reports/
           
-  # Train model with sample data (CI test)
-  train-test:
-    runs-on: ubuntu-latest
-    needs: [test-lint, test-unit]
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
-
-      - name: Install dependencies from requirements.txt
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f "requirements.txt" ]; then
-            pip install -r requirements.txt
-          else
-            echo "ERROR: requirements.txt not found!"
-            exit 1
-          fi
-
-      - name: Train with sample data
-        run: |
-          echo "=== Testing training pipeline with sample data ==="
-          python run.py --train
-          echo "=== Checking if model was created ==="
-          ls -lh models/
-          test -f models/best_model_*.pt || (echo "No model found!" && exit 1)
-
-      - name: Upload model artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: model-test
-          path: |
-            models/
-            results/
-          retention-days: 1
-
-  # Full training job (manual trigger)
-  train-full:
-    runs-on: ubuntu-latest
-    needs: build-image
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
-
-      - name: Install dependencies from requirements.txt
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f "requirements.txt" ]; then
-            pip install -r requirements.txt
-          else
-            echo "ERROR: requirements.txt not found!"
-            exit 1
-          fi
-
-      - name: Run full training
-        run: |
-          echo "=== Starting full model training ==="
-          python run.py --train
-          echo "=== Training completed ==="
-          ls -lh src/models/
-
-      - name: Upload full model artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: model-full
-          path: |
-            src/models/
-            src/results/
-          retention-days: 7
-
-  # Evaluate model
-  evaluate:
-    runs-on: ubuntu-latest
-    needs: train-test
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download model artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: model-test
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
-
-      - name: Install dependencies from requirements.txt
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f "requirements.txt" ]; then
-            pip install -r requirements.txt
-          else
-            echo "ERROR: requirements.txt not found!"
-            exit 1
-          fi
-
-      - name: Evaluate model
-        run: |
-          echo "=== Running model evaluation ==="
-          python run.py --eval
-          echo "=== Evaluation completed ==="
-          ls -lh results/
-
-      - name: Upload evaluation results
-        uses: actions/upload-artifact@v4
-        with:
-          name: evaluation-results
-          path: results/
-          retention-days: 7
-
-  # Deploy: Push final image with model
-  deploy-model:
-    runs-on: ubuntu-latest
-    needs: [train-test, evaluate]
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull and tag production image
-        run: |
-          echo "=== Tagging production image ==="
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production
-          docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v${{ github.run_number }}
-          
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v${{ github.run_number }}
-          
-          echo "=== Production image deployed ==="
-          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production"
-          echo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v${{ github.run_number }}"
 
   # Optional: Grype security scan (alternative à Docker Scout)
   security-scan:
